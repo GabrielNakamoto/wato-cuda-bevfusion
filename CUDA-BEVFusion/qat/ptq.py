@@ -119,7 +119,7 @@ def main():
     data_loader_train =  build_dataloader(
             dataset_train,
             samples_per_gpu=1,  
-            workers_per_gpu=1,  
+            workers_per_gpu=0,  
             dist=distributed,
             seed=cfg.seed,
         )

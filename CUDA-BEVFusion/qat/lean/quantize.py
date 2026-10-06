@@ -172,15 +172,16 @@ def quantize_encoders_camera_branch(model_camera_branch):
     Make all inputs of each concat have the same scale
     Improved performance when using TensorRT forward
     '''
-    major = model_camera_branch.backbone.layer3[0].conv1._input_quantizer
-    model_camera_branch.neck.quant_concat1._input_quantizer = major
-    model_camera_branch.neck.lateral_convs[0].conv._input_quantizer = major
-    model_camera_branch.backbone.layer3[0].downsample[0]._input_quantizer = major
-    
-    major = model_camera_branch.backbone.layer4[0].conv1._input_quantizer
-    model_camera_branch.neck.quant_concat0._input_quantizer = major
-    model_camera_branch.neck.lateral_convs[1].conv._input_quantizer = major
-    model_camera_branch.backbone.layer4[0].downsample[0]._input_quantizer = major
+    if hasattr(model_camera_branch.backbone, "layer3"):
+        major = model_camera_branch.backbone.layer3[0].conv1._input_quantizer
+        model_camera_branch.neck.quant_concat1._input_quantizer = major
+        model_camera_branch.neck.lateral_convs[0].conv._input_quantizer = major
+        model_camera_branch.backbone.layer3[0].downsample[0]._input_quantizer = major
+
+        major = model_camera_branch.backbone.layer4[0].conv1._input_quantizer
+        model_camera_branch.neck.quant_concat0._input_quantizer = major
+        model_camera_branch.neck.lateral_convs[1].conv._input_quantizer = major
+        model_camera_branch.backbone.layer4[0].downsample[0]._input_quantizer = major
     
     
 def transfer_torch_to_quantization(nninstance : torch.nn.Module, quantmodule):
@@ -229,7 +230,9 @@ def replace_to_quantization_module(model : torch.nn.Module):
     recursive_and_replace_module(model)
     
 def quantize_camera_vtransform(model_camera_vtreansform):
-    replace_to_quantization_module(model_camera_vtreansform.dtransform) 
+    # Only DepthLSSTransform has a dtransform; the LSS seg config only has depthnet.
+    if hasattr(model_camera_vtreansform, "dtransform"):
+        replace_to_quantization_module(model_camera_vtreansform.dtransform)
     replace_to_quantization_module(model_camera_vtreansform.depthnet) 
     
 def quantize_decoder(model_decoder):
