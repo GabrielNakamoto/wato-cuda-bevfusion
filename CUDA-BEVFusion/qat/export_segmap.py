@@ -1,26 +1,58 @@
-import argparse
-import os
-
-import torch
+import argparse, os, importlib, torch
 import torch.nn as nn
 from pytorch_quantization.nn.modules.tensor_quantizer import TensorQuantizer
+from torch.nn import functional as F
 
 import lean.quantize as quantize
-from export-transfuser import SubclassFuser
+from export_transfuser import SubclassFuser
 
+def grid_transform(transform, x:torch.Tensor):
+    # --- optional pre-upscale ---
+    if transform.prescale_factor != 1:
+        x = F.interpolate(
+            x,
+            scale_factor=transform.prescale_factor,
+            mode='bilinear',
+            align_corners=False
+        )
+
+    # compute output grid dimensions from scopes
+    # (opset-safe replacement for grid_sample since ONNX opset < 16
+    #  doesn't expose GridSample)
+    output_size = []
+    for (_, _, _), (omin, omax, ostep) in zip(
+        transform.input_scope, transform.output_scope
+    ):
+        n = int(torch.arange(omin + ostep / 2, omax, ostep).numel())
+        output_size.append(n)
+
+    # Bilinear resize to the target output size.
+    # For regular grids this is equivalent to grid_sample with
+    # align_corners=False while remaining fully ONNX-exportable.
+    x = F.interpolate(
+        x,
+        size=tuple(output_size),
+        mode='bilinear',
+        align_corners=False
+    )
+    return x
 
 class SubclassHeadSeg(nn.Module):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
 
-    def head_forward():
-        pass
+
+    @staticmethod
+    def head_forward(self, x:torch.Tensor):
+        x = grid_transform(self.transform, x)
+        x = self.classifier(x)
+        return torch.sigmoid(x)
 
     def forward(self, x):
         for type_, head in self.parent.heads.items():
             if type_ == "map":
-                return head(x)
+                return self.head_forward(head, x)
         raise ValueError("Model does not have a map (segmentation) head")
 
 

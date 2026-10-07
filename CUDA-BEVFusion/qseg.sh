@@ -49,3 +49,7 @@ fi
 python3 qat/ptq.py \
     --config bevfusion/configs/nuscenes/seg/fusion-bev256d2-lss.yaml \
     --ckpt bevfusion/pretrained/bevfusion-seg.pth
+
+python3 qat/export_camera.py --fp16
+python3 qat/export_segmap.py --fp16
+python3 qat/export_scn.py
