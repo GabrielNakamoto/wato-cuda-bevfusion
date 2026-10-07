@@ -18,8 +18,16 @@ if [ ! -f bevfusion/pretrained/bevfusion-seg.pth ]; then
     ( cd bevfusion && bash tools/download_pretrained.sh )
 fi
 
-# 4) nuScenes mini (free, no auth).  NOTE: the tarball only contains raw data;
-#    the info .pkl files are generated in step 5.
+# 4) example-data for ONNX export (qat/export-*.py loads "example-data/example-data.pth").
+#    The NVBox link is a direct download; the archive's top-level dir is example-data/.
+if [ ! -f example-data/example-data.pth ]; then
+    wget -c -O example-data.zip \
+        "https://nvidia.box.com/shared/static/g8vxxes3xj1288teyo4og87rn99brdf8"
+    python3 -c "import zipfile; zipfile.ZipFile('example-data.zip').extractall('.')"
+fi
+
+# 5) nuScenes mini (free, no auth).  NOTE: the tarball only contains raw data;
+#    the info .pkl files are generated in step 6.
 DATA_DIR="$(realpath -m data/nuscenes)"
 if [ ! -d "$DATA_DIR/v1.0-mini" ]; then
     mkdir -p "$DATA_DIR"
@@ -27,7 +35,7 @@ if [ ! -d "$DATA_DIR/v1.0-mini" ]; then
     tar -xzf "$DATA_DIR/v1.0-mini.tgz" -C "$DATA_DIR"
 fi
 
-# 5) Generate nuscenes_infos_{train,val}.pkl + nuscenes_dbinfos_train.pkl.
+# 6) Generate nuscenes_infos_{train,val}.pkl + nuscenes_dbinfos_train.pkl.
 #    Use absolute paths so ptq.py can be run from any CWD.
 if [ ! -f "$DATA_DIR/nuscenes_infos_train.pkl" ]; then
     ( cd bevfusion && python tools/create_data.py nuscenes \
@@ -37,7 +45,7 @@ if [ ! -f "$DATA_DIR/nuscenes_infos_train.pkl" ]; then
         --version   v1.0-mini )
 fi
 
-# 6) PTQ calibration -> qat/ckpt/bevfusion_ptq.pth
+# 7) PTQ calibration -> qat/ckpt/bevfusion_ptq.pth
 python3 qat/ptq.py \
     --config bevfusion/configs/nuscenes/seg/fusion-bev256d2-lss.yaml \
     --ckpt bevfusion/pretrained/bevfusion-seg.pth

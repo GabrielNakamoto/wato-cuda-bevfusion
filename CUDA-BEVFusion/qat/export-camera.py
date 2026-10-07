@@ -64,13 +64,18 @@ class SubclassCameraModule(nn.Module):
         BN, C, H, W = map(int, feat.size())
         feat = feat.view(B, int(BN / B), C, H, W)
 
+        # seg model uses bas lss
+        # https://github.com/mit-han-lab/bevfusion/blob/main/mmdet3d/models/vtransforms/lss.py
+        is_depth_lss = hasattr(self, "dtransform")
         def get_cam_feats(self, x, d):
             B, N, C, fH, fW = map(int, x.shape)
-            d = d.view(B * N, *d.shape[2:])
             x = x.view(B * N, C, fH, fW)
 
-            d = self.dtransform(d)
-            x = torch.cat([d, x], dim=1)
+            if is_depth_lss:
+                d = d.view(B * N, *d.shape[2:])
+                d = self.dtransform(d)
+                x = torch.cat([d, x], dim=1)
+
             x = self.depthnet(x)
 
             depth = x[:, : self.D].softmax(dim=1)
