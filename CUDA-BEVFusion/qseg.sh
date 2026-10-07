@@ -46,10 +46,23 @@ if [ ! -f "$DATA_DIR/nuscenes_infos_train.pkl" ]; then
 fi
 
 # 7) PTQ calibration -> qat/ckpt/bevfusion_ptq.pth
-python3 qat/ptq.py \
-    --config bevfusion/configs/nuscenes/seg/fusion-bev256d2-lss.yaml \
-    --ckpt bevfusion/pretrained/bevfusion-seg.pth
+if [ ! -f "qat/ckpt/bevfusion_ptq.pth" ]; then
+    python3 qat/ptq.py \
+	--config bevfusion/configs/nuscenes/seg/fusion-bev256d2-lss.yaml \
+	--ckpt bevfusion/pretrained/bevfusion-seg.pth
+fi
 
-python3 qat/export_camera.py --fp16
-python3 qat/export_segmap.py --fp16
-python3 qat/export_scn.py
+if [ ! -d "qat/ckpt/onnx" ]; then
+    python3 qat/export_camera.py --fp16
+    python3 qat/export_segmap.py --fp16
+    python3 qat/export_scn.py
+fi
+
+
+if [ ! -d "model/swint" ]; then
+     mkdir -p model/swint
+     mv qat/ckpt/bevfusion_ptq.pth qat/ckpt/onnx/* qat/ckpt/onnx_fp16/* model/swint
+fi
+
+apt install libprotobuf-dev
+# -> install tensorrt
