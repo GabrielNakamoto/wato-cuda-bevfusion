@@ -79,9 +79,10 @@ function compile_trt_model(){
         return
     fi
     
-    # Remove the onnx dependency
-    # get_onnx_number_io $onnx
-    # echo $number_of_input  $number_of_output
+    # Derive the I/O counts from the ONNX graph so the generated
+    # --inputIOFormats/--outputIOFormats entries always match the network
+    # (e.g. the segmentation camera.backbone has 1 input, detection has 2).
+    get_onnx_number_io $onnx
 
     input_flags="--inputIOFormats="
     output_flags="--outputIOFormats="
