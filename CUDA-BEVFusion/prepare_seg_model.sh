@@ -12,9 +12,9 @@ echo "=========================================="
 # 0) System dependencies
 # ---------------------------------------------------------------------------
 echo "[0/8] Installing system dependencies..."
-if ! dpkg -s libprotobuf-dev &>/dev/null; then
+if ! dpkg -s libprotobuf-dev &>/dev/null || ! command -v cmake >/dev/null 2>&1; then
     apt-get update -qq
-    apt-get install -y -qq libprotobuf-dev wget unzip build-essential git
+    apt-get install -y -qq libprotobuf-dev wget unzip build-essential git cmake
 fi
 
 # ---------------------------------------------------------------------------
@@ -373,6 +373,16 @@ fi
 sed -i 's/^export DEBUG_MODEL=.*/export DEBUG_MODEL=seg/'   tool/environment.sh
 sed -i 's/^export DEBUG_PRECISION=.*/export DEBUG_PRECISION=fp16/' tool/environment.sh
 sed -i 's/^export DEBUG_DATA=.*/export DEBUG_DATA=example-data/'     tool/environment.sh
+
+# The prebuilt sparse-conv libraries are tagged 11.4 for CUDA 11.x and 12.8
+# for CUDA 12.x.  Match SPCONV_CUDA_VERSION to the installed toolkit so the
+# C++ inference build picks the right libspconv and C++ standard.
+cuda_major="$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9][0-9]*\).*/\1/p')"
+if [ "${cuda_major:-11}" -ge 12 ]; then
+    sed -i 's/^export SPCONV_CUDA_VERSION=.*/export SPCONV_CUDA_VERSION=12.8/' tool/environment.sh
+else
+    sed -i 's/^export SPCONV_CUDA_VERSION=.*/export SPCONV_CUDA_VERSION=11.4/' tool/environment.sh
+fi
 
 echo "    Updated tool/environment.sh:"
 grep -E 'DEBUG_MODEL|DEBUG_PRECISION|DEBUG_DATA' tool/environment.sh || true

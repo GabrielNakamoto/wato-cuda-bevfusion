@@ -21,6 +21,7 @@ public:
   bool init(const SegHeadParameters& param) {
     if (!param.enabled) return false;
     engine_ = TensorRT::load(param.model);
+
     if (engine_ == nullptr) return false;
     if (engine_->has_dynamic_dim()) {
       printf("Dynamic shapes are not supported for map head.\n");
@@ -44,9 +45,14 @@ public:
 
 	virtual MapView forward(const nvtype::half *fusion_feature, void* stream) {
 		std::vector<const void*> bindings(engine_->num_bindings(), nullptr):
-		bindings[engine_->index("middle")] = fusion_features;
-		bindings[engine_->index("map_logits")] = output_;
-		Asserts(engine_->forward(bindings, stream), "Failed to execute map head on TensorRT engine.");
+
+    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+
+    eninge_->forward(std::unordered_map<std::string, const void *>{
+      {"middle", fusion_features},
+      {"map_logits", output_},
+    }, _stream);
+
 		return view_;
 	}
 
