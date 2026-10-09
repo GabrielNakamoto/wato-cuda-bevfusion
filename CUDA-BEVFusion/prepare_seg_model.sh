@@ -18,6 +18,69 @@ if ! dpkg -s libprotobuf-dev &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# 0b) TensorRT + cuDNN
+#     `trtexec` (shipped by the `libnvinfer-bin` deb) is what actually builds
+#     the .plan engines.  The base bevfusion image (CUDA 11.3) does not ship
+#     TensorRT, so install it from NVIDIA's CUDA apt repository.
+# ---------------------------------------------------------------------------
+install_tensorrt() {
+    # Covers both the deb install and a manual tarball that put trtexec on PATH.
+    if command -v trtexec >/dev/null 2>&1 || [ -x /usr/src/tensorrt/bin/trtexec ]; then
+        echo "    TensorRT already installed; skipping."
+        return 0
+    fi
+
+    # NVIDIA's apt repo is keyed by distro (ubuntu2004) and arch (x86_64).
+    local distro arch
+    distro="ubuntu$(. /etc/os-release && echo "${VERSION_ID//./}")"
+    case "$(dpkg --print-architecture)" in
+        amd64) arch="x86_64" ;;
+        arm64) arch="aarch64" ;;
+        *)     arch="$(dpkg --print-architecture)" ;;
+    esac
+
+    # Add the CUDA apt repository only if it is not configured yet.  Checking
+    # the source files (rather than apt-cache) avoids creating a conflicting
+    # duplicate entry on images that already ship a cuda.list (nvidia/cuda:*).
+    if ! grep -rqs 'developer.download.nvidia.com/compute/cuda/repos' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; then
+        echo "    Adding NVIDIA CUDA apt repository (${distro}/${arch})..."
+        local keyring
+        keyring="$(mktemp --suffix=.deb)"
+        wget -q -O "$keyring" \
+            "https://developer.download.nvidia.com/compute/cuda/repos/${distro}/${arch}/cuda-keyring_1.1-1_all.deb"
+        dpkg -i "$keyring"
+        rm -f "$keyring"
+    fi
+
+    apt-get update -qq
+
+    # TensorRT 8.5.3 / cuDNN 8.6.0 are the newest builds published for CUDA 11.x
+    # and satisfy the README's TensorRT >= 8.5 requirement.  Override with
+    # TENSORRT_APT_VERSION / CUDNN_APT_VERSION for a different CUDA version.
+    local trt_ver="${TENSORRT_APT_VERSION:-8.5.3-1+cuda11.8}"
+    local cudnn_ver="${CUDNN_APT_VERSION:-8.6.0.163-1+cuda11.8}"
+    local pkgs=(libcudnn8 libcudnn8-dev
+                libnvinfer8 libnvinfer-bin libnvinfer-dev
+                libnvinfer-plugin8 libnvinfer-plugin-dev
+                libnvonnxparsers8 libnvonnxparsers-dev libnvparsers8)
+    local pinned=() p
+    for p in "${pkgs[@]}"; do
+        case "$p" in
+            libcudnn8*) pinned+=("$p=$cudnn_ver") ;;
+            *)          pinned+=("$p=$trt_ver")   ;;
+        esac
+    done
+
+    echo "    Installing TensorRT ${trt_ver} and cuDNN ${cudnn_ver}..."
+    if ! apt-get install -y --no-install-recommends "${pinned[@]}"; then
+        echo "    Pinned versions unavailable; installing the latest from the repo..."
+        apt-get install -y --no-install-recommends "${pkgs[@]}"
+    fi
+}
+install_tensorrt
+
+# ---------------------------------------------------------------------------
 # 1) Python dependencies
 # ---------------------------------------------------------------------------
 echo "[1/8] Installing Python dependencies..."
@@ -89,6 +152,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Build-time / CPU-only stop.
+# PTQ calibration, ONNX export and TensorRT engine building all require a
+# CUDA device, which `docker build` cannot provide.  Set PREPARE_SKIP_GPU=1
+# while building the image so these steps run on the first GPU-enabled
+# container start (see docker/entrypoint.sh).
+# ---------------------------------------------------------------------------
+if [ "${PREPARE_SKIP_GPU:-0}" = "1" ]; then
+    echo ""
+    echo "PREPARE_SKIP_GPU=1 -> stopping before GPU-only steps (PTQ/ONNX/engines)."
+    echo "Re-run prepare_seg_model.sh with a GPU (e.g. docker run --gpus all) to finish."
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # 7) PTQ calibration -> qat/ckpt/bevfusion_ptq.pth
 # ---------------------------------------------------------------------------
 echo "[7/8] Running PTQ calibration for segmentation..."
@@ -154,26 +231,123 @@ ls -lh "$MODEL_DIR/"*.onnx
 echo ""
 echo "Configuring environment for seg model..."
 
-# Auto-detect TensorRT if paths are still placeholders
-if grep -q '/path/to/tensorrt' tool/environment.sh; then
-    FOUND_TRT=""
-    for trt_path in /usr/src/tensorrt /usr/local/tensorrt /opt/tensorrt; do
-        if [ -f "$trt_path/bin/trtexec" ]; then
-            FOUND_TRT="$trt_path"
+# Helper: detect TensorRT across common container / system layouts
+auto_detect_tensorrt() {
+    local trt_bin="" trt_lib="" trt_inc=""
+
+    # 1) Look for a self-contained tree layout: <root>/{bin,lib,include}
+    for root in /usr/src/tensorrt /usr/local/tensorrt /opt/tensorrt \
+                /usr/local/TensorRT /opt/TensorRT; do
+        if { [ -f "$root/bin/trtexec" ] || [ -f "$root/bin/trtexec.exe" ]; } \
+           && [ -d "$root/lib" ] && [ -d "$root/include" ]; then
+            trt_bin="$root/bin"
+            trt_lib="$root/lib"
+            trt_inc="$root/include"
             break
         fi
     done
-    # Fallback: check if trtexec is already on PATH
-    if [ -z "$FOUND_TRT" ] && command -v trtexec >/dev/null 2>&1; then
-        TRTEXEC_PATH="$(command -v trtexec)"
-        FOUND_TRT="$(realpath -m "$(dirname "$TRTEXEC_PATH")/../")"
+
+    # 2) Locate the trtexec binary.  The libnvinfer-bin deb puts it in
+    #    /usr/src/tensorrt/bin without a matching lib/include tree.
+    if [ -z "$trt_bin" ]; then
+        local trtexec_path=""
+        if command -v trtexec >/dev/null 2>&1; then
+            trtexec_path="$(command -v trtexec)"
+        else
+            for p in /usr/src/tensorrt/bin/trtexec \
+                     /usr/bin/trtexec /usr/local/bin/trtexec; do
+                [ -f "$p" ] && trtexec_path="$p" && break
+            done
+        fi
+
+        if [ -n "$trtexec_path" ]; then
+            trt_bin="$(dirname "$trtexec_path")"
+            # Prefer a self-contained tree next to the binary (../lib, ../include)
+            local inferred_root
+            inferred_root="$(realpath -m "$trt_bin/..")"
+            if [ -f "$inferred_root/lib/libnvinfer.so" ] \
+               || [ -f "$inferred_root/lib/libnvinfer.so.8" ]; then
+                trt_lib="$inferred_root/lib"
+                trt_inc="$inferred_root/include"
+            fi
+        fi
     fi
 
-    if [ -n "$FOUND_TRT" ]; then
-        sed -i "s|/path/to/tensorrt|$FOUND_TRT|g" tool/environment.sh
-        echo "    Auto-configured TensorRT path: $FOUND_TRT"
-    else
-        echo "    WARNING: Could not auto-detect TensorRT. Please set TensorRT_* in tool/environment.sh manually."
+    # 3) System-package (deb) layout: libs and headers live in multiarch dirs
+    if [ -z "$trt_lib" ]; then
+        for libdir in /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/lib; do
+            if [ -f "$libdir/libnvinfer.so" ] || [ -f "$libdir/libnvinfer.so.8" ]; then
+                trt_lib="$libdir"
+                break
+            fi
+        done
+    fi
+    if [ -z "$trt_inc" ]; then
+        for incdir in /usr/include/x86_64-linux-gnu /usr/include/aarch64-linux-gnu /usr/include; do
+            if [ -f "$incdir/NvInfer.h" ]; then
+                trt_inc="$incdir"
+                break
+            fi
+        done
+    fi
+
+    # 4) Last resort: the dynamic linker and existing environment variables
+    if [ -z "$trt_lib" ]; then
+        local ldconf_line
+        ldconf_line="$(ldconfig -p 2>/dev/null | grep -m1 'libnvinfer.so ' | awk '{print $NF}')"
+        if [ -n "$ldconf_line" ] && [ -f "$ldconf_line" ]; then
+            trt_lib="$(dirname "$ldconf_line")"
+        fi
+    fi
+    if [ -z "$trt_lib" ] && [ -n "${TENSORRT_LIB:-}" ] && [ -d "$TENSORRT_LIB" ]; then
+        trt_lib="$TENSORRT_LIB"
+    fi
+    if [ -z "$trt_inc" ] && [ -n "${TENSORRT_INCLUDE:-}" ] && [ -d "$TENSORRT_INCLUDE" ]; then
+        trt_inc="$TENSORRT_INCLUDE"
+    fi
+    if [ -z "$trt_bin" ] && [ -n "${TENSORRT_BIN:-}" ] && [ -d "$TENSORRT_BIN" ]; then
+        trt_bin="$TENSORRT_BIN"
+    fi
+
+    # Return results
+    printf "%s\n%s\n%s\n" "$trt_bin" "$trt_lib" "$trt_inc"
+}
+
+# --- run detection ---
+mapfile -t TRT_VARS < <(auto_detect_tensorrt)
+TRT_BIN="${TRT_VARS[0]}"
+TRT_LIB="${TRT_VARS[1]}"
+TRT_INC="${TRT_VARS[2]}"
+
+if [ -n "$TRT_BIN" ] && [ -f "$TRT_BIN/trtexec" ]; then
+    sed -i "s|^export TensorRT_Lib=.*|export TensorRT_Lib=$TRT_LIB|" tool/environment.sh
+    sed -i "s|^export TensorRT_Inc=.*|export TensorRT_Inc=$TRT_INC|" tool/environment.sh
+    sed -i "s|^export TensorRT_Bin=.*|export TensorRT_Bin=$TRT_BIN|" tool/environment.sh
+    echo "    Auto-configured TensorRT:"
+    echo "      TensorRT_Lib = $TRT_LIB"
+    echo "      TensorRT_Inc = $TRT_INC"
+    echo "      TensorRT_Bin = $TRT_BIN"
+else
+    echo "    ERROR: Could not auto-detect TensorRT installation."
+    echo "    Please edit tool/environment.sh manually and set TensorRT_Lib, TensorRT_Inc, and TensorRT_Bin."
+    echo "    Common container locations:"
+    echo "      - /usr/src/tensorrt/{lib,include,bin}"
+    echo "      - /usr/lib/x86_64-linux-gnu + /usr/include/x86_64-linux-gnu + /usr/bin"
+    exit 1
+fi
+
+# Auto-detect CUDNN if still placeholder
+if grep -q '/path/to/cudnn' tool/environment.sh; then
+    CUDNN_LIB=""
+    for d in /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/local/cuda/lib64 /usr/lib; do
+        if [ -f "$d/libcudnn.so" ] || [ -f "$d/libcudnn.so.8" ]; then
+            CUDNN_LIB="$d"
+            break
+        fi
+    done
+    if [ -n "$CUDNN_LIB" ]; then
+        sed -i "s|^export CUDNN_Lib=.*|export CUDNN_Lib=$CUDNN_LIB|" tool/environment.sh
+        echo "    Auto-configured CUDNN: CUDNN_Lib = $CUDNN_LIB"
     fi
 fi
 
@@ -198,7 +372,9 @@ set +u
 set -u
 
 if [ "${ConfigurationStatus:-Failed}" != "Success" ]; then
-    echo "ERROR: tool/environment.sh failed to configure. Please set TensorRT/CUDA paths manually."
+    echo "ERROR: tool/environment.sh failed to configure."
+    echo "       TensorRT_Bin=$TensorRT_Bin  TensorRT_Lib=$TensorRT_Lib  TensorRT_Inc=$TensorRT_Inc"
+    echo "       Please fix these paths in tool/environment.sh manually."
     exit 1
 fi
 
