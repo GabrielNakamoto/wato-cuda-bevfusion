@@ -16,7 +16,6 @@ namespace segmap {
 
 struct SegHeadParameters {
   std::string model;
-  bool enabled = false;
 };
 
 struct MapView {

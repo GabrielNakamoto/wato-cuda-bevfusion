@@ -208,6 +208,9 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   transbbox.confidence_threshold = 0.12f;
   transbbox.sorted_bboxes = true;
 
+  bevfusion::head::segmap::SegMapParameter segmap;
+  segmap.model = nv::format("model/%s/build/head.seg.plan", model.c_str());
+
   bevfusion::CoreParameter param;
   param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
   param.normalize = normalization;
@@ -215,6 +218,7 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   param.geometry = geometry;
   param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
   param.transbbox = transbbox;
+  param.sgmap = segmap;
   param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
   return bevfusion::create_core(param);
 }

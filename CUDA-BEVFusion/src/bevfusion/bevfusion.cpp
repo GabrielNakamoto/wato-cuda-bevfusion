@@ -21,6 +21,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include <utility>
 #include "bevfusion.hpp"
 
 #include <numeric>
@@ -69,6 +70,12 @@ class CoreImplement : public Core {
       return false;
     }
 
+    segmap_ = head::segmap::create_maphead(param.segmap);
+    if (segmap_ == nullptr) {
+      printf("Failed to create seg head.\n");
+      return false;
+    }
+
     lidar_scn_ = lidar::create_scn(param.lidar_scn);
     if (lidar_scn_ == nullptr) {
       printf("Failed to create lidar scn.\n");
@@ -101,7 +108,7 @@ class CoreImplement : public Core {
     return true;
   }
 
-  std::vector<head::transbbox::BoundingBox> forward_only(const void* camera_images, const nvtype::half* lidar_points,
+  HeadOutputs forward_only(const void* camera_images, const nvtype::half* lidar_points,
                                                          int num_points, void* stream, bool do_normalization) {
     int cappoints = static_cast<int>(capacity_points_);
     if (num_points > cappoints) {
@@ -129,11 +136,13 @@ class CoreImplement : public Core {
 
     const nvtype::half* camera_bevfeat = camera_vtransform_->forward(camera_bev, stream);
     const nvtype::half* fusion_feature = this->transfusion_->forward(camera_bevfeat, lidar_feature, stream);
-    return this->transbbox_->forward(fusion_feature, param_.transbbox.confidence_threshold, stream,
+    const auto bbox_detections = this->transbbox_->forward(fusion_feature, param_.transbbox.confidence_threshold, stream,
                                      param_.transbbox.sorted_bboxes);
+    const auto seg_map_detection = this->segmap_->->forward(fusion_feature, stream);
+    return std::make_pair(bbox_detections, seg_map_detection);
   }
 
-  std::vector<head::transbbox::BoundingBox> forward_timer(const void* camera_images, const nvtype::half* lidar_points,
+  HeadOutputs forward_timer(const void* camera_images, const nvtype::half* lidar_points,
                                                           int num_points, void* stream, bool do_normalization) {
     int cappoints = static_cast<int>(capacity_points_);
     if (num_points > cappoints) {
@@ -186,17 +195,21 @@ class CoreImplement : public Core {
     times.emplace_back(timer_.stop("Transfusion"));
 
     timer_.start(_stream);
-    auto output =
+    auto bbox_output =
         this->transbbox_->forward(fusion_feature, param_.transbbox.confidence_threshold, stream, param_.transbbox.sorted_bboxes);
     times.emplace_back(timer_.stop("Head BoundingBox"));
+
+    timer_.start(_stream);
+    auto seg_output = this->segmap_->forward(fusion_feature, stream);
+    times.emplace_back(timer_.stop("Head Segmentation"));
 
     float total_time = std::accumulate(times.begin(), times.end(), 0.0f, std::plus<float>{});
     printf("Total: %.3f ms\n", total_time);
     printf("=============================================\n");
-    return output;
+    return std::make_pair(bbox_output, seg_output);
   }
 
-  virtual std::vector<head::transbbox::BoundingBox> forward(const unsigned char** camera_images, const nvtype::half* lidar_points,
+  virtual HeadOutputs forward(const unsigned char** camera_images, const nvtype::half* lidar_points,
                                                             int num_points, void* stream) override {
     if (enable_timer_) {
       return this->forward_timer(camera_images, lidar_points, num_points, stream, true);
@@ -205,7 +218,7 @@ class CoreImplement : public Core {
     }
   }
 
-  virtual std::vector<head::transbbox::BoundingBox> forward_no_normalize(const nvtype::half* camera_normed_images_device,
+  virtual HeadOutputs forward_no_normalize(const nvtype::half* camera_normed_images_device,
                                                                          const nvtype::half* lidar_points, int num_points,
                                                                          void* stream) override {
     if (enable_timer_) {
@@ -249,6 +262,7 @@ class CoreImplement : public Core {
   std::shared_ptr<lidar::SCN> lidar_scn_;
   std::shared_ptr<fuser::Transfusion> transfusion_;
   std::shared_ptr<head::transbbox::TransBBox> transbbox_;
+  std::shared_ptr<head::segmap::SegMap> segmap_;
   float confidence_threshold_ = 0;
   bool enable_timer_ = false;
 };

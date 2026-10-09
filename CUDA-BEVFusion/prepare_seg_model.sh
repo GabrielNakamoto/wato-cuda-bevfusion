@@ -12,9 +12,9 @@ echo "=========================================="
 # 0) System dependencies
 # ---------------------------------------------------------------------------
 echo "[0/8] Installing system dependencies..."
-if ! dpkg -s libprotobuf-dev &>/dev/null; then
+if ! dpkg -s libprotobuf-dev &>/dev/null || ! command -v cmake >/dev/null 2>&1; then
     apt-get update -qq
-    apt-get install -y -qq libprotobuf-dev wget unzip build-essential git
+    apt-get install -y -qq libprotobuf-dev wget unzip build-essential git cmake
 fi
 
 # ---------------------------------------------------------------------------
@@ -74,8 +74,12 @@ install_tensorrt() {
 
     echo "    Installing TensorRT ${trt_ver} and cuDNN ${cudnn_ver}..."
     if ! apt-get install -y --no-install-recommends "${pinned[@]}"; then
-        echo "    Pinned versions unavailable; installing the latest from the repo..."
-        apt-get install -y --no-install-recommends "${pkgs[@]}"
+        # A failed unpack (e.g. transient disk pressure) leaves dpkg in a
+        # half-configured state; repair it and retry the same pinned set rather
+        # than silently installing a different, incompatible major version.
+        echo "    Install failed; repairing dpkg state and retrying..."
+        apt-get -f install -y || true
+        apt-get install -y --no-install-recommends "${pinned[@]}"
     fi
 }
 install_tensorrt
@@ -84,15 +88,24 @@ install_tensorrt
 # 1) Python dependencies
 # ---------------------------------------------------------------------------
 echo "[1/8] Installing Python dependencies..."
-pip install -q -r tool/requirements.txt
+pip install -q --no-cache-dir -r tool/requirements.txt
 
 # ---------------------------------------------------------------------------
 # 2) Build / verify the bevfusion (mmdet3d) package
 # ---------------------------------------------------------------------------
 echo "[2/8] Setting up bevfusion Python package..."
 if ! python -c "import mmdet3d" >/dev/null 2>&1; then
-    ( cd bevfusion && python setup.py develop )
+    if ! ( cd bevfusion && python setup.py develop ); then
+        echo "    WARNING: 'setup.py develop' returned non-zero; verifying import below."
+    fi
 fi
+if ! python -c "import mmdet3d" >/dev/null 2>&1; then
+    echo "ERROR: mmdet3d is not importable after the build. See the output above."
+    exit 1
+fi
+# The compiled object files are no longer needed once the .so extensions live
+# in the source tree; dropping them saves several hundred MB.
+rm -rf bevfusion/build
 
 # ---------------------------------------------------------------------------
 # 3) Pretrained seg checkpoint (idempotent)
@@ -104,6 +117,10 @@ if [ ! -f bevfusion/pretrained/bevfusion-seg.pth ]; then
 else
     echo "    bevfusion-seg.pth already exists, skipping."
 fi
+# The segmentation pipeline only needs the fused seg checkpoint; drop the
+# detection / camera-only / lidar-only weights to save ~700 MB.
+find bevfusion/pretrained -maxdepth 1 -type f -name '*.pth' \
+    ! -name 'bevfusion-seg.pth' -delete
 
 # ---------------------------------------------------------------------------
 # 4) example-data for ONNX export
@@ -132,6 +149,7 @@ if [ ! -d "$DATA_DIR/v1.0-mini" ]; then
     wget -q --show-progress -c -O "$DATA_DIR/v1.0-mini.tgz" \
         https://www.nuscenes.org/data/v1.0-mini.tgz
     tar -xzf "$DATA_DIR/v1.0-mini.tgz" -C "$DATA_DIR"
+    rm -f "$DATA_DIR/v1.0-mini.tgz"
 else
     echo "    nuScenes mini already exists, skipping."
 fi
@@ -355,6 +373,16 @@ fi
 sed -i 's/^export DEBUG_MODEL=.*/export DEBUG_MODEL=seg/'   tool/environment.sh
 sed -i 's/^export DEBUG_PRECISION=.*/export DEBUG_PRECISION=fp16/' tool/environment.sh
 sed -i 's/^export DEBUG_DATA=.*/export DEBUG_DATA=example-data/'     tool/environment.sh
+
+# The prebuilt sparse-conv libraries are tagged 11.4 for CUDA 11.x and 12.8
+# for CUDA 12.x.  Match SPCONV_CUDA_VERSION to the installed toolkit so the
+# C++ inference build picks the right libspconv and C++ standard.
+cuda_major="$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9][0-9]*\).*/\1/p')"
+if [ "${cuda_major:-11}" -ge 12 ]; then
+    sed -i 's/^export SPCONV_CUDA_VERSION=.*/export SPCONV_CUDA_VERSION=12.8/' tool/environment.sh
+else
+    sed -i 's/^export SPCONV_CUDA_VERSION=.*/export SPCONV_CUDA_VERSION=11.4/' tool/environment.sh
+fi
 
 echo "    Updated tool/environment.sh:"
 grep -E 'DEBUG_MODEL|DEBUG_PRECISION|DEBUG_DATA' tool/environment.sh || true
