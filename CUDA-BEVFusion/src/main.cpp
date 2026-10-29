@@ -1,29 +1,12 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
  */
 
+#include <cuda_fp16.h>
 #include <cuda_runtime.h>
-#include <string.h>
 #include <dlfcn.h>
+#include <string.h>
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -49,15 +32,60 @@ static std::vector<unsigned char*> load_images(const std::string& root) {
 
     int width, height, channels;
     images.push_back(stbi_load(path, &width, &height, &channels, 0));
-    // printf("Image info[%d]: %d x %d : %d\n", i, width, height, channels);
   }
   return images;
 }
 
 static void free_images(std::vector<unsigned char*>& images) {
   for (size_t i = 0; i < images.size(); ++i) stbi_image_free(images[i]);
-
   images.clear();
+}
+
+static void visualize_segmap(const bevfusion::head::segmap::MapView& segmap, const std::string& save_path,
+                             cudaStream_t stream) {
+  if (!segmap.valid()) return;
+
+  size_t numel = segmap.numel();
+  std::vector<half> host_half(numel);
+  checkRuntime(cudaMemcpyAsync(host_half.data(), segmap.data, numel * sizeof(half), cudaMemcpyDeviceToHost, stream));
+  checkRuntime(cudaStreamSynchronize(stream));
+
+  // Palette matching nuScenes map classes:
+  // 0: drivable_area, 1: ped_crossing, 2: walkway, 3: stop_line, 4: carpark_area, 5: divider
+  const unsigned char palette[6][3] = {
+      {166, 206, 227},  // drivable_area (light blue)
+      {31, 120, 180},   // ped_crossing (blue)
+      {178, 223, 138},  // walkway (light green)
+      {51, 160, 44},    // stop_line (green)
+      {251, 154, 153},  // carpark_area (pink)
+      {227, 26, 28}     // divider (red)
+  };
+
+  int H = segmap.height;
+  int W = segmap.width;
+  int C = segmap.classes;
+  std::vector<unsigned char> canvas(H * W * 3, 240);
+
+  for (int c = 0; c < C && c < 6; ++c) {
+    const half* ch = host_half.data() + static_cast<size_t>(c) * H * W;
+    for (int y = 0; y < H; ++y) {
+      for (int x = 0; x < W; ++x) {
+        float prob = __half2float(ch[y * W + x]);
+        if (prob >= 0.5f) {
+          // Flip Y & transpose to match standard BEV top-down view
+          int out_y = H - 1 - x;
+          int out_x = W - 1 - y;
+          int idx = (out_y * W + out_x) * 3;
+          canvas[idx + 0] = palette[c][0];
+          canvas[idx + 1] = palette[c][1];
+          canvas[idx + 2] = palette[c][2];
+        }
+      }
+    }
+  }
+
+  printf("Save segmentation map to %s (%dx%d, %d classes)\n", save_path.c_str(), W, H, C);
+  stbi_write_jpg(save_path.c_str(), W, H, 3, canvas.data(), 100);
 }
 
 static void visualize(const std::vector<bevfusion::head::transbbox::BoundingBox>& bboxes, const nv::Tensor& lidar_points,
@@ -146,8 +174,9 @@ static void visualize(const std::vector<bevfusion::head::transbbox::BoundingBox>
 }
 
 std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std::string& precision) {
-
   printf("Create by %s, %s\n", model.c_str(), precision.c_str());
+  const bool is_seg = (model.find("seg") != std::string::npos);
+
   bevfusion::camera::NormalizationParameter normalization;
   normalization.image_width = 1600;
   normalization.image_height = 900;
@@ -162,9 +191,15 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   normalization.method = bevfusion::camera::NormMethod::mean_std(mean, std, 1 / 255.0f, 0.0f);
 
   bevfusion::lidar::VoxelizationParameter voxelization;
-  voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0);
-  voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0);
-  voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
+  if (is_seg) {
+    voxelization.min_range = nvtype::Float3(-51.2f, -51.2f, -5.0f);
+    voxelization.max_range = nvtype::Float3(+51.2f, +51.2f, +3.0f);
+    voxelization.voxel_size = nvtype::Float3(0.1f, 0.1f, 0.2f);
+  } else {
+    voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0f);
+    voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0f);
+    voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
+  }
   voxelization.grid_size =
       voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
   voxelization.max_points_per_voxel = 10;
@@ -184,16 +219,22 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   }
 
   bevfusion::camera::GeometryParameter geometry;
-  geometry.xbound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
-  geometry.ybound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+  if (is_seg) {
+    geometry.xbound = nvtype::Float3(-51.2f, 51.2f, 0.4f);
+    geometry.ybound = nvtype::Float3(-51.2f, 51.2f, 0.4f);
+    geometry.geometry_dim = nvtype::Int3(256, 256, 80);
+  } else {
+    geometry.xbound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.ybound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+    geometry.geometry_dim = nvtype::Int3(360, 360, 80);
+  }
   geometry.zbound = nvtype::Float3(-10.0f, 10.0f, 20.0f);
-  geometry.dbound = nvtype::Float3(1.0, 60.0f, 0.5f);
+  geometry.dbound = nvtype::Float3(1.0f, 60.0f, 0.5f);
   geometry.image_width = 704;
   geometry.image_height = 256;
   geometry.feat_width = 88;
   geometry.feat_height = 32;
   geometry.num_camera = 6;
-  geometry.geometry_dim = nvtype::Int3(360, 360, 80);
 
   bevfusion::head::transbbox::TransBBoxParameter transbbox;
   transbbox.out_size_factor = 8;
@@ -202,11 +243,12 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   transbbox.post_center_range_end = {61.2, 61.2, 10.0};
   transbbox.voxel_size = {0.075, 0.075};
   transbbox.model = nv::format("model/%s/build/head.bbox.plan", model.c_str());
-
-  // if you got an inaccurate boundingbox result please turn on the layernormplugin plan.
-  // transbbox.model = nv::format("model/%s/build/head.bbox.layernormplugin.plan", model.c_str());
   transbbox.confidence_threshold = 0.12f;
   transbbox.sorted_bboxes = true;
+
+  bevfusion::head::segmap::SegHeadParameters segmap;
+  segmap.model = nv::format("model/%s/build/head.seg.plan", model.c_str());
+  segmap.enabled = is_seg;
 
   bevfusion::CoreParameter param;
   param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
@@ -215,12 +257,12 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   param.geometry = geometry;
   param.transfusion = nv::format("model/%s/build/fuser.plan", model.c_str());
   param.transbbox = transbbox;
+  param.segmap = segmap;
   param.camera_vtransform = nv::format("model/%s/build/camera.vtransform.plan", model.c_str());
   return bevfusion::create_core(param);
 }
 
 int main(int argc, char** argv) {
-
   const char* data      = "example-data";
   const char* model     = "resnet50int8";
   const char* precision = "int8";
@@ -238,7 +280,7 @@ int main(int argc, char** argv) {
 
   cudaStream_t stream;
   cudaStreamCreate(&stream);
- 
+
   core->print();
   core->set_timer(true);
 
@@ -248,15 +290,14 @@ int main(int argc, char** argv) {
   auto lidar2image = nv::Tensor::load(nv::format("%s/lidar2image.tensor", data), false);
   auto img_aug_matrix = nv::Tensor::load(nv::format("%s/img_aug_matrix.tensor", data), false);
   core->update(camera2lidar.ptr<float>(), camera_intrinsics.ptr<float>(), lidar2image.ptr<float>(), img_aug_matrix.ptr<float>(),
-              stream);
-  // core->free_excess_memory();
+               stream);
 
   // Load image and lidar to host
   auto images = load_images(data);
   auto lidar_points = nv::Tensor::load(nv::format("%s/points.tensor", data), false);
-  
+
   // warmup
-  auto bboxes =
+  auto outputs =
       core->forward((const unsigned char**)images.data(), lidar_points.ptr<nvtype::half>(), lidar_points.size(0), stream);
 
   // evaluate inference time
@@ -265,12 +306,15 @@ int main(int argc, char** argv) {
   }
 
   // visualize and save to jpg
-  visualize(bboxes, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
+  if (outputs.second.valid()) {
+    visualize_segmap(outputs.second, "build/cuda-bevfusion-seg.jpg", stream);
+  } else {
+    visualize(outputs.first, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
+  }
 
   // destroy memory
   free_images(images);
   checkRuntime(cudaStreamDestroy(stream));
 
-  printf("[Warning]: If you got an inaccurate boundingbox result please turn on the layernormplugin plan. (main.cpp:207)\n");
   return 0;
 }

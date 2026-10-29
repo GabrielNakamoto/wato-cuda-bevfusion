@@ -20,8 +20,6 @@
 # DEALINGS IN THE SOFTWARE.
 
 import sys
-
-
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -66,11 +64,12 @@ class SubclassCameraModule(nn.Module):
 
         def get_cam_feats(self, x, d):
             B, N, C, fH, fW = map(int, x.shape)
-            d = d.view(B * N, *d.shape[2:])
             x = x.view(B * N, C, fH, fW)
 
-            d = self.dtransform(d)
-            x = torch.cat([d, x], dim=1)
+            if hasattr(self, "dtransform"):
+                d = d.view(B * N, *d.shape[2:])
+                d = self.dtransform(d)
+                x = torch.cat([d, x], dim=1)
             x = self.depthnet(x)
 
             depth = x[:, : self.D].softmax(dim=1)
@@ -96,9 +95,13 @@ def main():
     camera_model.cuda().eval()
     depth = torch.zeros(len(points), img.shape[1], 1, img.shape[-2], img.shape[-1]).cuda()
 
-    downsample_model = model.encoders.camera.vtransform.downsample
+    vtransform = model.encoders.camera.vtransform
+    downsample_model = vtransform.downsample
     downsample_model.cuda().eval()
-    downsample_in = torch.zeros(1, 80, 360, 360).cuda()
+    nx_x = int(vtransform.nx[0].item()) if hasattr(vtransform, "nx") else 360
+    nx_y = int(vtransform.nx[1].item()) if hasattr(vtransform, "nx") else 360
+    c_out = int(vtransform.C) if hasattr(vtransform, "C") else 80
+    downsample_in = torch.zeros(1, c_out, nx_x, nx_y).cuda()
 
     save_root = f"qat/onnx_{suffix}"
     os.makedirs(save_root, exist_ok=True)

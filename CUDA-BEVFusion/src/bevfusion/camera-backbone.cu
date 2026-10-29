@@ -1,28 +1,9 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
  */
 
 #include <cuda_fp16.h>
-
 #include <numeric>
 
 #include "camera-backbone.hpp"
@@ -35,8 +16,8 @@ namespace camera {
 
 class BackboneImplement : public Backbone {
  public:
-  const char* BindingImages = "img";  // input
-  const char* BindingDepth  = "depth";     // output
+  const char* BindingImages        = "img";
+  const char* BindingDepth         = "depth";
   const char* BindingCameraDepths  = "camera_depth_weights";
   const char* BindingCameraFeature = "camera_feature";
 
@@ -48,6 +29,8 @@ class BackboneImplement : public Backbone {
   bool init(const std::string& model) {
     engine_ = TensorRT::load(model);
     if (engine_ == nullptr) return false;
+
+    has_depth_input_ = (engine_->num_bindings() >= 4);
 
     depth_dims_   = engine_->static_dims(BindingCameraDepths);
     feature_dims_ = engine_->static_dims(BindingCameraFeature);
@@ -62,15 +45,23 @@ class BackboneImplement : public Backbone {
     return true;
   }
 
-  virtual void print() override { engine_->print("Camerea Backbone"); }
+  virtual void print() override { engine_->print("Camera Backbone"); }
 
   virtual void forward(const nvtype::half* images, const nvtype::half* depth, void* stream = nullptr) override {
-    engine_->forward({
-      {BindingImages, images},
-      {BindingDepth, depth},
-      {BindingCameraDepths, depth_weights_},
-      {BindingCameraFeature, feature_}
-    }, static_cast<cudaStream_t>(stream));
+    if (has_depth_input_) {
+      engine_->forward({
+        {BindingImages, images},
+        {BindingDepth, depth},
+        {BindingCameraDepths, depth_weights_},
+        {BindingCameraFeature, feature_}
+      }, static_cast<cudaStream_t>(stream));
+    } else {
+      engine_->forward({
+        {BindingImages, images},
+        {BindingCameraDepths, depth_weights_},
+        {BindingCameraFeature, feature_}
+      }, static_cast<cudaStream_t>(stream));
+    }
   }
 
   virtual nvtype::half* depth() override { return depth_weights_; }
@@ -84,6 +75,7 @@ class BackboneImplement : public Backbone {
   nvtype::half* feature_ = nullptr;
   nvtype::half* depth_weights_ = nullptr;
   std::vector<int> feature_dims_, depth_dims_, camera_shape_;
+  bool has_depth_input_ = true;
 };
 
 std::shared_ptr<Backbone> create_backbone(const std::string& model) {
