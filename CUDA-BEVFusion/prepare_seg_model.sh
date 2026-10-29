@@ -11,7 +11,7 @@ echo "=========================================="
 # 1) Build mmdet3d (bevfusion) package if not installed
 if ! python3 -c "import mmdet3d.ops" >/dev/null 2>&1; then
     echo "[1/6] Building bevfusion Python package..."
-    ( cd bevfusion && FORCE_CUDA=1 python3 setup.py develop )
+    ( cd bevfusion && MAX_JOBS=1 FORCE_CUDA=1 python3 setup.py develop )
     rm -rf bevfusion/build
 else
     echo "[1/6] mmdet3d already built."

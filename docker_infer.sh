@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 docker build -t bevfusion -f CUDA-BEVFusion/bevfusion/docker/Dockerfile .
 docker build -t cuda-bevfusion -f CUDA-BEVFusion/docker/Dockerfile .
