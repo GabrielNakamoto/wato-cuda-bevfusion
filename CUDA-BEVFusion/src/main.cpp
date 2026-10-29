@@ -266,10 +266,12 @@ int main(int argc, char** argv) {
   const char* data      = "example-data";
   const char* model     = "resnet50int8";
   const char* precision = "int8";
+  const char* save_path = nullptr;
 
   if (argc > 1) data      = argv[1];
   if (argc > 2) model     = argv[2];
   if (argc > 3) precision = argv[3];
+  if (argc > 4) save_path = argv[4];
   dlopen("libcustom_layernorm.so", RTLD_NOW);
 
   auto core = create_core(model, precision);
@@ -307,9 +309,13 @@ int main(int argc, char** argv) {
 
   // visualize and save to jpg
   if (outputs.second.valid()) {
-    visualize_segmap(outputs.second, "build/cuda-bevfusion-seg.jpg", stream);
+    std::string out_jpg = save_path ? save_path : "build/cuda-bevfusion-seg.jpg";
+    visualize_segmap(outputs.second, out_jpg, stream);
+    visualize(outputs.first, lidar_points, images, lidar2image,
+              save_path ? (std::string(save_path) + ".scene.jpg") : "build/cuda-bevfusion-scene.jpg", stream);
   } else {
-    visualize(outputs.first, lidar_points, images, lidar2image, "build/cuda-bevfusion.jpg", stream);
+    std::string out_jpg = save_path ? save_path : "build/cuda-bevfusion.jpg";
+    visualize(outputs.first, lidar_points, images, lidar2image, out_jpg, stream);
   }
 
   // destroy memory

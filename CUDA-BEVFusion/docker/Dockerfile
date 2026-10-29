@@ -3,10 +3,10 @@ FROM bevfusion:latest
 ENV DEBIAN_FRONTEND=noninteractive
 ENV FORCE_CUDA=1
 
-# Install system dependencies, protobuf-compiler, cuDNN 8.6, and TensorRT 8.5.3
+# Install system dependencies, cuDNN 8.6, and TensorRT 8.5.3
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libprotobuf-dev protobuf-compiler cmake unzip git-lfs \
+        libprotobuf-dev cmake unzip git-lfs \
         libcudnn8=8.6.0.163-1+cuda11.8 \
         libcudnn8-dev=8.6.0.163-1+cuda11.8 \
         libnvinfer8=8.5.3-1+cuda11.8 \
@@ -24,5 +24,11 @@ RUN apt-get update && \
 COPY CUDA-BEVFusion/tool/requirements.txt /tmp/requirements.txt
 RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt && \
     rm -f /tmp/requirements.txt
+
+# Install protobuf-compiler so /usr/bin/protoc (3.6.1) matches libprotobuf-dev
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends protobuf-compiler && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/wato-cuda-bevfusion/CUDA-BEVFusion

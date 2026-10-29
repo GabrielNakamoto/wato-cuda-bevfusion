@@ -23,7 +23,7 @@ export DEBUG_MODEL=${DEBUG_MODEL:-seg}
 # fp16/int8
 export DEBUG_PRECISION=${DEBUG_PRECISION:-fp16}
 export DEBUG_DATA=${DEBUG_DATA:-example-data}
-export USE_Python=OFF
+export USE_Python=${USE_Python:-ON}
 
 export ConfigurationStatus=Failed
 if [ ! -f "${TensorRT_Bin}/trtexec" ]; then
