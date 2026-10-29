@@ -9,7 +9,7 @@ echo " CUDA-BEVFusion Segmentation Model Setup "
 echo "=========================================="
 
 # 1) Build mmdet3d (bevfusion) package if not installed
-if ! python3 -c "import mmdet3d" >/dev/null 2>&1; then
+if ! python3 -c "import mmdet3d.ops" >/dev/null 2>&1; then
     echo "[1/6] Building bevfusion Python package..."
     ( cd bevfusion && FORCE_CUDA=1 python3 setup.py develop )
     rm -rf bevfusion/build
