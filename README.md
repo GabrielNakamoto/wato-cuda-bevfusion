@@ -14,7 +14,7 @@ Requirements:
 
 How to run it:
 ```
-git clone -b tensorrt-map --recursive https://github.com/GabrielNakamoto/wato-cuda-bevfusion/
+git clone -j8 -b tensorrt-map --recursive https://github.com/GabrielNakamoto/wato-cuda-bevfusion/
 cd wato-cuda-bevfusion && bash docker_infer.sh
 ```
 What it does:
