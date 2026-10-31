@@ -16,7 +16,7 @@ struct SegHeadParameters {
 };
 
 struct MapView {
-  const nvtype::half* data = nullptr;
+  uint8_t* data = nullptr;
   int classes = 0;
   int height = 0;
   int width = 0;

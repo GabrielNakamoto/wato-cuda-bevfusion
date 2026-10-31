@@ -45,11 +45,6 @@ static void visualize_segmap(const bevfusion::head::segmap::MapView& segmap, con
                              cudaStream_t stream) {
   if (!segmap.valid()) return;
 
-  size_t numel = segmap.numel();
-  std::vector<half> host_half(numel);
-  checkRuntime(cudaMemcpyAsync(host_half.data(), segmap.data, numel * sizeof(half), cudaMemcpyDeviceToHost, stream));
-  checkRuntime(cudaStreamSynchronize(stream));
-
   // Palette matching nuScenes map classes:
   // 0: drivable_area, 1: ped_crossing, 2: walkway, 3: stop_line, 4: carpark_area, 5: divider
   const unsigned char palette[6][3] = {
@@ -67,11 +62,10 @@ static void visualize_segmap(const bevfusion::head::segmap::MapView& segmap, con
   std::vector<unsigned char> canvas(H * W * 3, 240);
 
   for (int c = 0; c < C && c < 6; ++c) {
-    const half* ch = host_half.data() + static_cast<size_t>(c) * H * W;
+    const uint8_t* ch = segmap.data + static_cast<size_t>(c) * H * W;
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
-        float prob = __half2float(ch[y * W + x]);
-        if (prob >= 0.5f) {
+        if (ch[y*W + x] > 0) {
           // Flip Y & transpose to match standard BEV top-down view
           int out_y = H - 1 - x;
           int out_x = W - 1 - y;

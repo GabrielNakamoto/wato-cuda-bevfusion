@@ -50,7 +50,9 @@ class SubclassHeadSeg(nn.Module):
     def head_forward(self, x: torch.Tensor):
         x = grid_transform(self.transform, x)
         x = self.classifier(x)
-        return torch.sigmoid(x)
+        probs = torch.sigmoid(x)
+        out = torch.where(probs > self.threshold, torch.full_like(probs, 100.0), torch.zeros_like(probs))
+        return out.to(torch.float16)
 
     def forward(self, x):
         for type_, head in self.parent.heads.items():

@@ -42,7 +42,8 @@ function compile_trt_model(){
     result_save_directory=$base/build
     onnx=$base/$name.onnx
 
-    if [ -f "${result_save_directory}/$name.plan" ]; then
+    if [ -f "${result_save_directory}/$name.plan" ] && \
+       [ ! "$onnx" -nt "${result_save_directory}/$name.plan" ]; then
         echo Model ${result_save_directory}/$name.plan already build 🙋🙋🙋.
         return
     fi
