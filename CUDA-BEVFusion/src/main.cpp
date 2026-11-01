@@ -66,10 +66,7 @@ static void visualize_segmap(const bevfusion::head::segmap::MapView& segmap, con
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
         if (ch[y*W + x] > 0) {
-          // Flip Y & transpose to match standard BEV top-down view
-          int out_y = H - 1 - x;
-          int out_x = W - 1 - y;
-          int idx = (out_y * W + out_x) * 3;
+          int idx = (y*W + x) * 3;
           canvas[idx + 0] = palette[c][0];
           canvas[idx + 1] = palette[c][1];
           canvas[idx + 2] = palette[c][2];

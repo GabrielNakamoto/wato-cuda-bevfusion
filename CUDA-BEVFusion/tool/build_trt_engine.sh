@@ -38,7 +38,8 @@ function compile_trt_model(){
     precision_flags=$2
     number_of_input=$3
     number_of_output=$4
-    extra_flags=$5
+    extra_flags=${5:-}
+    output_format=${6:-fp16}
     result_save_directory=$base/build
     onnx=$base/$name.onnx
 
@@ -51,17 +52,20 @@ function compile_trt_model(){
     get_onnx_number_io $onnx
 
     input_flags="--inputIOFormats="
-    output_flags="--outputIOFormats="
+    output_flags=""
     for i in $(seq 1 $number_of_input); do
         input_flags+=fp16:chw,
     done
 
-    for i in $(seq 1 $number_of_output); do
-        output_flags+=fp16:chw,
-    done
+    if [ "$output_format" != "none" ]; then
+        output_flags="--outputIOFormats="
+        for i in $(seq 1 $number_of_output); do
+            output_flags+="${output_format}:chw,"
+        done
+        output_flags=${output_flags%?}
+    fi
 
     input_flags=${input_flags%?}
-    output_flags=${output_flags%?}
 
     cmd="--onnx=$base/$name.onnx ${precision_flags} ${input_flags} ${output_flags} ${extra_flags} \
         --saveEngine=${result_save_directory}/$name.plan \
@@ -87,7 +91,7 @@ compile_trt_model "fuser" "$trtexec_dynamic_flags" 2 1
 compile_trt_model "camera.vtransform" "$trtexec_fp16_flags" 1 1
 
 if [ -f "$base/head.seg.onnx" ]; then
-    compile_trt_model "head.seg" "$trtexec_fp16_flags" 1 1
+    compile_trt_model "head.seg" "$trtexec_fp16_flags" 1 1 "" "none"
 elif [ -f "$base/head.bbox.onnx" ]; then
     compile_trt_model "head.bbox" "$trtexec_fp16_flags" 1 6
 fi

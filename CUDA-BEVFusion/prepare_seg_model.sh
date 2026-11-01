@@ -56,11 +56,11 @@ if [ ! -f qat/onnx_fp16/lidar.backbone.xyz.onnx ]; then
 fi
 
 mkdir -p model/seg
-cp -f qat/onnx_fp16/camera.backbone.onnx    model/seg/
-cp -f qat/onnx_fp16/camera.vtransform.onnx  model/seg/
-cp -f qat/onnx_fp16/fuser.onnx              model/seg/
-cp -f qat/onnx_fp16/head.seg.onnx           model/seg/
-cp -f qat/onnx_fp16/lidar.backbone.xyz.onnx model/seg/
+cp -p qat/onnx_fp16/camera.backbone.onnx    model/seg/
+cp -p qat/onnx_fp16/camera.vtransform.onnx  model/seg/
+cp -p qat/onnx_fp16/fuser.onnx              model/seg/
+cp -p qat/onnx_fp16/head.seg.onnx           model/seg/
+cp -p qat/onnx_fp16/lidar.backbone.xyz.onnx model/seg/
 cp -f bevfusion/configs/nuscenes/seg/fusion-bev256d2-lss.yaml model/seg/default.yaml
 
 # 6) Build TensorRT engines
