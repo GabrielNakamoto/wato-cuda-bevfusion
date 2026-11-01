@@ -56,7 +56,7 @@ class SubclassHeadSeg(nn.Module):
           torch.full_like(probs, 100.0),
           torch.zeros_like(probs)
         )
-        return out.transpose(2,3).flip(2).to(torch.uint8)
+        return out.transpose(2,3).flip(2,3).to(torch.uint8)
 
     def forward(self, x):
         for type_, head in self.parent.heads.items():
