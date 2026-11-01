@@ -13,15 +13,8 @@ fi
 # resnet50/resnet50-int8/swint-tiny/seg
 base=model/$DEBUG_MODEL
 
-# fp16/int8
-precision=$DEBUG_PRECISION
-
-# precision flags
+# all engines are built fp16 only
 trtexec_fp16_flags="--fp16"
-trtexec_dynamic_flags="--fp16"
-if [ "$precision" == "int8" ]; then
-    trtexec_dynamic_flags="--fp16 --int8"
-fi
 
 function get_onnx_number_io(){
     model=$1
@@ -83,15 +76,13 @@ function compile_trt_model(){
     fi
 }
 
-# maybe int8 / fp16
-compile_trt_model "camera.backbone" "$trtexec_dynamic_flags" 2 2
-compile_trt_model "fuser" "$trtexec_dynamic_flags" 2 1
-
-# fp16 only
+# fp16 only (no int8 path)
+compile_trt_model "camera.backbone" "$trtexec_fp16_flags" 2 2
+compile_trt_model "fuser" "$trtexec_fp16_flags" 2 1
 compile_trt_model "camera.vtransform" "$trtexec_fp16_flags" 1 1
 
 if [ -f "$base/head.seg.onnx" ]; then
-    compile_trt_model "head.seg" "$trtexec_fp16_flags" 1 1 "" "none"
+    compile_trt_model "head.seg" "$trtexec_fp16_flags" 1 1
 elif [ -f "$base/head.bbox.onnx" ]; then
     compile_trt_model "head.bbox" "$trtexec_fp16_flags" 1 6
 fi

@@ -49,14 +49,8 @@ class SubclassHeadSeg(nn.Module):
     @staticmethod
     def head_forward(self, x: torch.Tensor):
         x = grid_transform(self.transform, x)
-        x = self.classifier(x)
-        probs = torch.sigmoid(x)
-        out = torch.where(
-          probs > self.threshold,
-          torch.full_like(probs, 100.0),
-          torch.zeros_like(probs)
-        )
-        return out.transpose(2,3).to(torch.uint8)
+        # avoid sigmoid by thresholding raw logits in custom cuda kernel
+        return self.classifier(x).transpose(2,3)
 
     def forward(self, x):
         for type_, head in self.parent.heads.items():

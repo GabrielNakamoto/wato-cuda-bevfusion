@@ -12,6 +12,7 @@ namespace segmap {
 
 struct SegHeadParameters {
   std::string model;
+  float confidence_threshold = 0.0;
   bool enabled = false;
 };
 

@@ -1,7 +1,6 @@
 [submodule "CUDA-BEVFusion/bevfusion"]
 	path = CUDA-BEVFusion/bevfusion
-	url = https://github.com/GabrielNakamoto/wato-bevfusion.git
-	branch = clean
+	url = https://github.com/WATonomous/wato-bevfusion.git
 [submodule "dependencies/pybind11"]
 	path = dependencies/pybind11
 	url = https://github.com/pybind/pybind11.git

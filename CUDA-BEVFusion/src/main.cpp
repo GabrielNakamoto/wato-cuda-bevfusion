@@ -7,6 +7,7 @@
 #include <cuda_runtime.h>
 #include <dlfcn.h>
 #include <string.h>
+#include <fstream>
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -166,7 +167,9 @@ static void visualize(const std::vector<bevfusion::head::transbbox::BoundingBox>
 
 std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std::string& precision) {
   printf("Create by %s, %s\n", model.c_str(), precision.c_str());
-  const bool is_seg = (model.find("seg") != std::string::npos);
+
+  // const bool is_seg = std::ifstream(nv::format("model/%s/build/head.seg.plan", model.c_str())).good();
+  const bool is_seg = true;
 
   bevfusion::camera::NormalizationParameter normalization;
   normalization.image_width = 1600;
@@ -240,6 +243,7 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   bevfusion::head::segmap::SegHeadParameters segmap;
   segmap.model = nv::format("model/%s/build/head.seg.plan", model.c_str());
   segmap.enabled = is_seg;
+  segmap.confidence_threshold = 0.5;
 
   bevfusion::CoreParameter param;
   param.camera_model = nv::format("model/%s/build/camera.backbone.plan", model.c_str());
