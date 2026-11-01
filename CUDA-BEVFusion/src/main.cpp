@@ -66,7 +66,7 @@ static void visualize_segmap(const bevfusion::head::segmap::MapView& segmap, con
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
         if (ch[y*W + x] > 0) {
-          int idx = (y*W + x) * 3;
+          int idx = ((H - 1 - y)*W + (W - 1 - x)) * 3;
           canvas[idx + 0] = palette[c][0];
           canvas[idx + 1] = palette[c][1];
           canvas[idx + 2] = palette[c][2];
