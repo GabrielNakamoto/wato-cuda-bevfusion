@@ -7,9 +7,10 @@ export PYTHONPATH="$(pwd)/bevfusion:${PYTHONPATH:-}"
 export DEBUG_MODEL="${DEBUG_MODEL:-dualhead}"
 export DEBUG_PRECISION="${DEBUG_PRECISION:-fp16}"
 MODEL_DIR="model/${DEBUG_MODEL}"
-CHECKPOINT="${DUALHEAD_CHECKPOINT:-dualhead/checkpoints/epoch_10.pth}"
-MODEL_CONFIG="${DUALHEAD_MODEL_CONFIG:-dualhead/model_config.yaml}"
-TRAIN_CONFIG="${DUALHEAD_TRAIN_CONFIG:-dualhead/train_config.yaml}"
+ASSET_DIR="${DUALHEAD_ASSET_DIR:-qat/ckpt/dualhead}"
+CHECKPOINT="${DUALHEAD_CHECKPOINT:-${ASSET_DIR}/epoch_10.pth}"
+MODEL_CONFIG="${DUALHEAD_MODEL_CONFIG:-${ASSET_DIR}/model_config.yaml}"
+TRAIN_CONFIG="${DUALHEAD_TRAIN_CONFIG:-${ASSET_DIR}/train_config.yaml}"
 FUSED_CHECKPOINT="qat/ckpt/dualhead_ptq.pth"
 
 echo "=========================================="
@@ -30,8 +31,9 @@ else
     echo "[1/6] mmdet3d already built."
 fi
 
-# 2) Validate the custom checkpoint and configs
+# 2) Fetch and validate the custom checkpoint and configs
 echo "[2/6] Checking custom dual-head checkpoint..."
+bash scripts/fetch_dualhead_model.sh
 if [ ! -f "$CHECKPOINT" ]; then
     echo "Missing checkpoint: $CHECKPOINT"
     exit 1

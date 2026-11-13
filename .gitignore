@@ -1,2 +1,6 @@
 __pycache__
 .vscode
+CUDA-BEVFusion/build/
+CUDA-BEVFusion/model/
+CUDA-BEVFusion/qat/ckpt/
+CUDA-BEVFusion/qat/onnx_fp16/
