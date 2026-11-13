@@ -36,6 +36,7 @@ namespace transbbox {
 
 struct TransBBoxParameter {
   std::string model;
+  bool enabled = true;
   float out_size_factor = 8;
   nvtype::Float2 voxel_size{0.075, 0.075};
   nvtype::Float2 pc_range{-54.0f, -54.0f};

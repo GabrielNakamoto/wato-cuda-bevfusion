@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Export scn to onnx file")
     parser.add_argument("--in-channel", type=int, default=5, help="SCN num of input channels")
-    parser.add_argument("--ckpt", type=str, default="qat/ckpt/bevfusion_ptq.pth", help="SCN Checkpoint (scn backbone checkpoint)")
+    parser.add_argument("--ckpt", type=str, default="qat/ckpt/dualhead_ptq.pth", help="SCN Checkpoint (scn backbone checkpoint)")
     parser.add_argument("--save", type=str, default="qat/onnx/lidar.backbone.onnx", help="output onnx")
     parser.add_argument("--inverse", action="store_true", help="Transfer the coordinate order of the index from xyz to zyx")
    

@@ -1,6 +1,7 @@
 #include "head-segmap.hpp"
 
 #include <cuda_fp16.h>
+#include <cmath>
 #include <numeric>
 #include <unordered_map>
 
@@ -51,8 +52,8 @@ class SegMapImplement : public SegMap {
     view_.height   = shape[2];
     view_.data = (uint8_t*)malloc(view_.numel());
 
-    checkRuntime(cudaMalloc(&output_, volume*sizeof(float)));
-    checkRuntime(cudaMalloc(&logits_, volume));
+    checkRuntime(cudaMalloc(&output_, volume*sizeof(uint8_t)));
+    checkRuntime(cudaMalloc(&logits_, volume*sizeof(half)));
     return true;
   }
 

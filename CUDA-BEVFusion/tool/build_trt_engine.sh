@@ -76,6 +76,15 @@ function compile_trt_model(){
     fi
 }
 
+# The bbox head uses the custom LayerNorm plugin.
+bbox_extra_flags=""
+if [ -f "$base/head.bbox.onnx" ]; then
+    mkdir -p build
+    echo "Building custom LayerNorm plugin for bbox head..."
+    (cd build && cmake .. >/tmp/custom_layernorm_cmake.log 2>&1 && make -j2 custom_layernorm >/tmp/custom_layernorm_make.log 2>&1)
+    bbox_extra_flags="--plugins=$(pwd)/build/libcustom_layernorm.so"
+fi
+
 # fp16 only (no int8 path)
 compile_trt_model "camera.backbone" "$trtexec_fp16_flags" 2 2
 compile_trt_model "fuser" "$trtexec_fp16_flags" 2 1
@@ -83,6 +92,7 @@ compile_trt_model "camera.vtransform" "$trtexec_fp16_flags" 1 1
 
 if [ -f "$base/head.seg.onnx" ]; then
     compile_trt_model "head.seg" "$trtexec_fp16_flags" 1 1
-elif [ -f "$base/head.bbox.onnx" ]; then
-    compile_trt_model "head.bbox" "$trtexec_fp16_flags" 1 6
+fi
+if [ -f "$base/head.bbox.onnx" ]; then
+    compile_trt_model "head.bbox" "$trtexec_fp16_flags" 1 6 "$bbox_extra_flags"
 fi

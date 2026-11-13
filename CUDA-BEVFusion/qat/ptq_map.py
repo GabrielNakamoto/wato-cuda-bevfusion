@@ -17,17 +17,17 @@ def main():
     parser.add_argument(
         "--config",
         metavar="FILE",
-        default="bevfusion/configs/nuscenes/seg/fusion-bev256d2-lss.yaml",
+        default="dualhead/model_config.yaml",
     )
     parser.add_argument(
         "--ckpt",
         metavar="FILE",
-        default="bevfusion/pretrained/bevfusion-seg.pth",
+        default="dualhead/checkpoints/epoch_10.pth",
     )
     parser.add_argument(
         "--out",
         metavar="FILE",
-        default="qat/ckpt/bevfusion_ptq.pth",
+        default="qat/ckpt/dualhead_ptq.pth",
     )
     args = parser.parse_args()
 

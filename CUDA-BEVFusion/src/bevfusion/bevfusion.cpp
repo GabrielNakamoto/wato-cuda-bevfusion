@@ -52,7 +52,9 @@ class CoreImplement : public Core {
         printf("Failed to create seg head.\n");
         return false;
       }
-    } else {
+    }
+
+    if (param.transbbox.enabled) {
       transbbox_ = head::transbbox::create_transbbox(param.transbbox);
       if (transbbox_ == nullptr) {
         printf("Failed to create head transbbox.\n");

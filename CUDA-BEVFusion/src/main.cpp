@@ -168,8 +168,8 @@ static void visualize(const std::vector<bevfusion::head::transbbox::BoundingBox>
 std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std::string& precision) {
   printf("Create by %s, %s\n", model.c_str(), precision.c_str());
 
-  // const bool is_seg = std::ifstream(nv::format("model/%s/build/head.seg.plan", model.c_str())).good();
-  const bool is_seg = true;
+  const bool is_seg = std::ifstream(nv::format("model/%s/build/head.seg.plan", model.c_str())).good();
+  const bool is_det = std::ifstream(nv::format("model/%s/build/head.bbox.plan", model.c_str())).good();
 
   bevfusion::camera::NormalizationParameter normalization;
   normalization.image_width = 1600;
@@ -185,15 +185,10 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   normalization.method = bevfusion::camera::NormMethod::mean_std(mean, std, 1 / 255.0f, 0.0f);
 
   bevfusion::lidar::VoxelizationParameter voxelization;
-  if (is_seg) {
-    voxelization.min_range = nvtype::Float3(-51.2f, -51.2f, -5.0f);
-    voxelization.max_range = nvtype::Float3(+51.2f, +51.2f, +3.0f);
-    voxelization.voxel_size = nvtype::Float3(0.1f, 0.1f, 0.2f);
-  } else {
-    voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0f);
-    voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0f);
-    voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
-  }
+
+  voxelization.min_range = nvtype::Float3(-54.0f, -54.0f, -5.0f);
+  voxelization.max_range = nvtype::Float3(+54.0f, +54.0f, +3.0f);
+  voxelization.voxel_size = nvtype::Float3(0.075f, 0.075f, 0.2f);
   voxelization.grid_size =
       voxelization.compute_grid_size(voxelization.max_range, voxelization.min_range, voxelization.voxel_size);
   voxelization.max_points_per_voxel = 10;
@@ -213,15 +208,9 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   }
 
   bevfusion::camera::GeometryParameter geometry;
-  if (is_seg) {
-    geometry.xbound = nvtype::Float3(-51.2f, 51.2f, 0.4f);
-    geometry.ybound = nvtype::Float3(-51.2f, 51.2f, 0.4f);
-    geometry.geometry_dim = nvtype::Int3(256, 256, 80);
-  } else {
-    geometry.xbound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
-    geometry.ybound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
-    geometry.geometry_dim = nvtype::Int3(360, 360, 80);
-  }
+  geometry.xbound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+  geometry.ybound = nvtype::Float3(-54.0f, 54.0f, 0.3f);
+  geometry.geometry_dim = nvtype::Int3(360, 360, 80);
   geometry.zbound = nvtype::Float3(-10.0f, 10.0f, 20.0f);
   geometry.dbound = nvtype::Float3(1.0f, 60.0f, 0.5f);
   geometry.image_width = 704;
@@ -239,6 +228,7 @@ std::shared_ptr<bevfusion::Core> create_core(const std::string& model, const std
   transbbox.model = nv::format("model/%s/build/head.bbox.plan", model.c_str());
   transbbox.confidence_threshold = 0.12f;
   transbbox.sorted_bboxes = true;
+  transbbox.enabled = is_det;
 
   bevfusion::head::segmap::SegHeadParameters segmap;
   segmap.model = nv::format("model/%s/build/head.seg.plan", model.c_str());

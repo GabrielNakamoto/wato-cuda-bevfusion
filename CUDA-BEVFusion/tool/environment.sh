@@ -18,7 +18,7 @@ export CUDNN_Lib=/usr/lib/x86_64-linux-gnu
 export SPCONV_CUDA_VERSION=11.4
 
 # resnet50/resnet50int8/swint/seg
-export DEBUG_MODEL=${DEBUG_MODEL:-seg}
+export DEBUG_MODEL=${DEBUG_MODEL:-dualhead}
 
 # fp16/int8
 export DEBUG_PRECISION=${DEBUG_PRECISION:-fp16}

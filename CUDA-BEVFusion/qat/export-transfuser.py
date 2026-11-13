@@ -218,8 +218,7 @@ class SubclassHeadBBox(nn.Module):
             if type == "object":
                 pred_dict = self.head_forward(head, x, self.classes_eye)
                 return self.get_bboxes(pred_dict, head.one_hot)
-            else:
-                raise ValueError(f"unsupported head: {type}")
+        raise ValueError("Model does not have an object (bbox) head")
         
 
 class SubclassFuser(nn.Module):
@@ -272,7 +271,7 @@ def replace_layernorm(model):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export transfusion to onnx file")
-    parser.add_argument("--ckpt", type=str, default="qat/ckpt/bevfusion_ptq.pth", help="Pretrain model")
+    parser.add_argument("--ckpt", type=str, default="qat/ckpt/dualhead_ptq.pth", help="Pretrain model")
     parser.add_argument('--fp16', action= 'store_true')
     args = parser.parse_args()
     model = torch.load(args.ckpt).module

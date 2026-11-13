@@ -1,0 +1,9 @@
+.git
+CUDA-BEVFusion/dualhead/checkpoints
+CUDA-BEVFusion/dualhead/logs
+CUDA-BEVFusion/example-data
+CUDA-BEVFusion/bevfusion
+CUDA-BEVFusion/build
+CUDA-BEVFusion/model
+CUDA-BEVFusion/qat/ckpt
+CUDA-BEVFusion/qat/onnx_fp16

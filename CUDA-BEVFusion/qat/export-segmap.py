@@ -64,7 +64,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="qat/ckpt/bevfusion_ptq.pth",
+        default="qat/ckpt/dualhead_ptq.pth",
         help="Pretrained model checkpoint",
     )
     parser.add_argument("--fp16", action="store_true")
@@ -86,8 +86,8 @@ if __name__ == "__main__":
 
     TensorQuantizer.use_fb_fake_quant = True
     with torch.no_grad():
-        camera_features = torch.randn(1, 80, 128, 128).cuda()
-        lidar_features = torch.randn(1, 256, 128, 128).cuda()
+        camera_features = torch.randn(1, 80, 180, 180).cuda()
+        lidar_features = torch.randn(1, 256, 180, 180).cuda()
 
         fuser_onnx_path = f"{save_root}/fuser.onnx"
         torch.onnx.export(
@@ -101,7 +101,7 @@ if __name__ == "__main__":
         print(f"🚀 Fuser export completed. ONNX saved as {fuser_onnx_path}")
 
         seghead_onnx_path = f"{save_root}/head.seg.onnx"
-        head_input = torch.randn(1, 512, 128, 128).cuda()
+        head_input = torch.randn(1, 512, 180, 180).cuda()
         torch.onnx.export(
             seghead,
             head_input,

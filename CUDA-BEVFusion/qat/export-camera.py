@@ -40,7 +40,7 @@ import lean.quantize as quantize
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Export bevfusion model")
-    parser.add_argument('--ckpt', type=str, default='qat/ckpt/bevfusion_ptq.pth')
+    parser.add_argument('--ckpt', type=str, default='qat/ckpt/dualhead_ptq.pth')
     parser.add_argument('--fp16', action= 'store_true')
     args = parser.parse_args()
     return args
