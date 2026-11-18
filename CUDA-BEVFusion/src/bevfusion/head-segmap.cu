@@ -13,6 +13,17 @@ namespace bevfusion {
 namespace head {
 namespace segmap {
 
+// Per-class variant: classes differ in calibration, so each plane gets its own
+// logit threshold. plane = height * width.
+static __global__ void threshold_kernel_per_class(const unsigned int numel, const unsigned int plane,
+                                                  const float *log_thresholds, const half *logits,
+                                                  uint8_t *output) {
+  int i = cuda_linear_index;   // same idiom as threshold_kernel
+  if (i >= numel) return;
+  const unsigned int cls = i / plane;
+  output[i] = __half2float(logits[i]) > log_thresholds[cls] ? 100 : 0;
+}
+
 static __global__ void threshold_kernel(const unsigned int numel, const float log_threshold, const half *logits, uint8_t *output) {
   int i = cuda_linear_index;
   if (i >= numel) return;
@@ -34,6 +45,17 @@ class SegMapImplement : public SegMap {
     if (!param.enabled) return false;
     engine_ = TensorRT::load(param.model);
     confidence_threshold = param.confidence_threshold;
+    confidence_thresholds_ = param.confidence_thresholds;
+    if (!confidence_thresholds_.empty()) {
+      std::vector<float> logits_thr(confidence_thresholds_.size());
+      for (size_t i = 0; i < confidence_thresholds_.size(); ++i) {
+        const float p = confidence_thresholds_[i];
+        logits_thr[i] = std::log(p / (1.f - p));
+      }
+      cudaMalloc(&thresholds_device_, logits_thr.size() * sizeof(float));
+      cudaMemcpy(thresholds_device_, logits_thr.data(), logits_thr.size() * sizeof(float),
+                 cudaMemcpyHostToDevice);
+    }
     if (engine_ == nullptr) return false;
 
     if (engine_->has_dynamic_dim()) {
@@ -68,8 +90,14 @@ class SegMapImplement : public SegMap {
         },
         _stream);
 
-    cuda_linear_launch(threshold_kernel, _stream, view_.numel(),
-      std::log(confidence_threshold / (1. - confidence_threshold)), logits_, output_);
+    if (!confidence_thresholds_.empty()) {
+      cuda_linear_launch(threshold_kernel_per_class, _stream, view_.numel(),
+        static_cast<unsigned int>(view_.height * view_.width), thresholds_device_,
+        logits_, output_);
+    } else {
+      cuda_linear_launch(threshold_kernel, _stream, view_.numel(),
+        std::log(confidence_threshold / (1. - confidence_threshold)), logits_, output_);
+    }
 
     checkRuntime(cudaMemcpyAsync((void*)view_.data, output_, view_.numel(),
       cudaMemcpyDeviceToHost, _stream));
@@ -81,6 +109,8 @@ class SegMapImplement : public SegMap {
  private:
   std::shared_ptr<TensorRT::Engine> engine_;
   float confidence_threshold;
+  std::vector<float> confidence_thresholds_;
+  float* thresholds_device_ = nullptr;
   half* logits_ = nullptr;
   uint8_t* output_ = nullptr;
   MapView view_;

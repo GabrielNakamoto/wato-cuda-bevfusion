@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/dtype.hpp"
 
@@ -12,7 +13,13 @@ namespace segmap {
 
 struct SegHeadParameters {
   std::string model;
+  // Single operating point, used when confidence_thresholds is empty.
   float confidence_threshold = 0.0;
+  // Optional per-class thresholds (one per map class, in model class order).
+  // Classes differ a lot in how confident a correct detection looks, so a single
+  // value starves the thin ones (divider, stop_line) and over-fires the broad
+  // ones; empty -> fall back to confidence_threshold.
+  std::vector<float> confidence_thresholds;
   bool enabled = false;
 };
 

@@ -16,7 +16,29 @@ _spec.loader.exec_module(_mod)
 SubclassFuser = _mod.SubclassFuser
 
 
+def _resample_matrix(in_scope, out_scope, device):
+    """Bilinear resampling weights (n_out x n_in) matching grid_sample(align_corners=False)."""
+    imin, imax, istep = in_scope
+    omin, omax, ostep = out_scope
+    n_in = int(round((imax - imin) / istep))
+    n_out = int(round((omax - omin) / ostep))
+    xo = torch.arange(n_out, dtype=torch.float64) * ostep + omin + ostep / 2
+    g = (xo - imin) / (imax - imin) * 2 - 1            # normalized, as grid_sample wants
+    pos = ((g + 1) * n_in - 1) / 2                     # -> input pixel coords
+    i0 = torch.floor(pos)
+    frac = pos - i0
+    i1 = i0 + 1
+    i0 = i0.clamp(0, n_in - 1).long()
+    i1 = i1.clamp(0, n_in - 1).long()
+    W = torch.zeros(n_out, n_in, dtype=torch.float32)
+    rows = torch.arange(n_out)
+    W[rows, i0] += (1 - frac).float()
+    W[rows, i1] += frac.float()
+    return W.to(device)
+
+
 def grid_transform(transform, x: torch.Tensor):
+    """Resample the BEV feature onto the output scope (crop, not stretch)."""
     if transform.prescale_factor != 1:
         x = F.interpolate(
             x,
@@ -25,20 +47,13 @@ def grid_transform(transform, x: torch.Tensor):
             align_corners=False,
         )
 
-    output_size = []
-    for (_, _, _), (omin, omax, ostep) in zip(
-        transform.input_scope, transform.output_scope
-    ):
-        n = int(torch.arange(omin + ostep / 2, omax, ostep).numel())
-        output_size.append(n)
+    Wy = _resample_matrix(transform.input_scope[0], transform.output_scope[0], x.device)
+    Wx = _resample_matrix(transform.input_scope[1], transform.output_scope[1], x.device)
 
-    x = F.interpolate(
-        x,
-        size=tuple(output_size),
-        mode="bilinear",
-        align_corners=False,
-    )
-    return x
+    B, C, H, Wd = x.shape
+    y = torch.matmul(Wy, x.reshape(B * C, H, Wd))       # (BC, n_out_y, W)
+    z = torch.matmul(y, Wx.t())                         # (BC, n_out_y, n_out_x)
+    return z.reshape(B, C, Wy.shape[0], Wx.shape[0])
 
 
 class SubclassHeadSeg(nn.Module):
