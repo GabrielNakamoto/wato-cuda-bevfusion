@@ -60,9 +60,20 @@ drivable IoU vs lanelet GT:
 | `--thresholds 0.05,0.02,0.5,0.02,0.5,0.10` | 0.455 | 13.4 % | 0.036 |
 | `--thresholds 0.03,0.02,0.5,0.02,0.5,0.08` | **0.465** | 13.6 % | **0.044** |
 
-Use `--thresholds` (per class, in head order) for a deployable export; a single
-scalar is only useful for A/B. Long term these should become ROS parameters with
-a probabilities output, rather than being compiled into the engine.
+**The IoU numbers above are misleading on their own.** The valid mask is only
+13.6 % of the grid, and GT drivable is 46.5 % of that, so a prediction that
+paints *every* valid cell scores IoU 0.465. That is exactly what the low-threshold
+exports do: at `--threshold 0.03` drivable fills 99.4 % of valid cells, i.e. the
+model is flooding, not discriminating. Thresholds here only trade "empty map"
+(0.5, fill 0.7 % of valid) against "everything is drivable" (0.03, fill 99.4 %).
+
+Practical consequence: do not ship a low-threshold export. `0.30` (IoU 0.18,
+fill ~26 % of valid) is the least-bad demo setting, and the underlying problem is
+calibration/perception quality, not the threshold. The real fix is a per-frame
+quantile threshold (needs a float probabilities output) or more training.
+
+Long term these should become ROS parameters with a probabilities output, rather
+than being compiled into the engine.
 
 ## Building the engine
 
