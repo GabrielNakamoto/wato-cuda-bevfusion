@@ -43,6 +43,27 @@ training repo) is a real fuser output; validating on it gives ~3e-4 max
 probability difference and **zero** threshold flips, where random noise gives a
 handful of flips at the 0.5 boundary (pure interpolation rounding).
 
+## Thresholds are baked into the graph
+
+`export-segmap.py` (and this script by default) applies one threshold in the
+ONNX graph, so changing it means re-exporting and rebuilding the engine. The
+fine-tuned head's probabilities are compressed low, and a global 0.5 produces a
+nearly empty map. Measured on a held-out frame (`oldbag__dataset_live__sample_0001`),
+drivable IoU vs lanelet GT:
+
+| export | drivable IoU | fill | divider IoU |
+|---|---|---|---|
+| `--threshold 0.5` (head default) | 0.003 | 0.1 % | 0.000 |
+| `--threshold 0.30` | 0.180 | 3.5 % | 0.000 |
+| `--threshold 0.20` | 0.371 | 9.2 % | 0.021 |
+| `--threshold 0.10` | 0.397 | 12.2 % | 0.036 |
+| `--thresholds 0.05,0.02,0.5,0.02,0.5,0.10` | 0.455 | 13.4 % | 0.036 |
+| `--thresholds 0.03,0.02,0.5,0.02,0.5,0.08` | **0.465** | 13.6 % | **0.044** |
+
+Use `--thresholds` (per class, in head order) for a deployable export; a single
+scalar is only useful for A/B. Long term these should become ROS parameters with
+a probabilities output, rather than being compiled into the engine.
+
 ## Building the engine
 
 ```bash

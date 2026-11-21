@@ -30,13 +30,15 @@ class SegExport(torch.nn.Module):
     def __init__(self, head, threshold):
         super().__init__()
         self.head = head
-        self.threshold = threshold
+        # scalar or per-class vector, broadcast over the channel dim
+        t = torch.as_tensor(threshold, dtype=torch.float32)
+        if t.numel() > 1:
+            t = t.view(1, -1, 1, 1)
+        self.register_buffer("thr", t)
 
     def forward(self, x):
         p = self.head(x)                       # eval mode returns sigmoid probs
-        out = torch.where(p > self.threshold,
-                          torch.full_like(p, 100.0),
-                          torch.zeros_like(p))
+        out = torch.where(p > self.thr, torch.full_like(p, 100.0), torch.zeros_like(p))
         return out.transpose(2, 3).to(torch.uint8)
 
 
@@ -47,6 +49,9 @@ def main():
     ap.add_argument("--out", default="qat/onnx_fp16/head.seg.onnx")
     ap.add_argument("--threshold", type=float, default=None,
                     help="default: the head's own threshold")
+    ap.add_argument("--thresholds", default=None,
+                    help="comma-separated per-class thresholds in head class order "
+                         "(drivable,ped_crossing,walkway,stop_line,carpark_area,divider)")
     ap.add_argument("--opset", type=int, default=17, help="16+ required: GridSample")
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--validate", action="store_true")
@@ -66,7 +71,11 @@ def main():
     load_checkpoint(model, args.ckpt, map_location="cpu", strict=False)
     head = model.heads["map"].to(args.device).eval()
 
-    thr = args.threshold if args.threshold is not None else float(getattr(head, "threshold", 0.5))
+    if args.thresholds:
+        thr = [float(v) for v in args.thresholds.split(",")]
+        assert len(thr) == len(head.classes), f"{len(thr)} thresholds for {len(head.classes)} classes"
+    else:
+        thr = args.threshold if args.threshold is not None else float(getattr(head, "threshold", 0.5))
     in_ch = int(head.in_channels)
     n_cls = len(head.classes)
     has_hi = getattr(head, "hi", None) is not None
