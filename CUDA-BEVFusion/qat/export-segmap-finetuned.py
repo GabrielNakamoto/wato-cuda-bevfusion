@@ -24,6 +24,29 @@ import sys
 import torch
 
 
+class SegExportLogits(torch.nn.Module):
+    """Head output WITHOUT sigmoid/threshold -- what head-segmap.cu consumes.
+
+    The CUDA head applies per-class thresholds on the raw logits on the GPU
+    (`logits_thr = logit(p)`), so the graph must stop at the classifier.
+    """
+
+    def __init__(self, head):
+        super().__init__()
+        self.head = head
+
+    def forward(self, x):
+        y = self.head.transform(x)
+        if getattr(self.head, "hi", None) is not None:
+            h = torch.nn.functional.interpolate(y, scale_factor=2, mode="bilinear",
+                                                align_corners=False)
+            h = self.head.hi(h)
+            h = torch.nn.functional.interpolate(h, size=y.shape[-2:], mode="bilinear",
+                                                align_corners=False)
+            y = y + h
+        return self.head.classifier(y)
+
+
 class SegExport(torch.nn.Module):
     """head -> sigmoid probabilities -> thresholded uint8 NCHW (transposed)."""
 
@@ -55,6 +78,10 @@ def main():
     ap.add_argument("--opset", type=int, default=17, help="16+ required: GridSample")
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--validate", action="store_true")
+    ap.add_argument("--logits", action="store_true",
+                    help="export raw logits (the head-segmap.cu contract), no sigmoid")
+    ap.add_argument("--half", action="store_true",
+                    help="export in float16 (the deployed engine is fp16)")
     ap.add_argument("--input-shape", default="1,512,128,128",
                     help="static input shape; must match the fuser engine's output "
                          "(stock CUDA-BEVFusion fuser: 128x128, our fork's: 180x180)")
@@ -81,7 +108,9 @@ def main():
     has_hi = getattr(head, "hi", None) is not None
     print(f"head: in_ch={in_ch} classes={n_cls} threshold={thr} hi_res={has_hi}")
 
-    m = SegExport(head, thr).eval()
+    m = (SegExportLogits(head) if args.logits else SegExport(head, thr)).eval()
+    if args.half:
+        m = m.half()
     shape = tuple(int(v) for v in args.input_shape.split(","))
     if args.input_npy:
         import numpy as np
@@ -92,6 +121,8 @@ def main():
         print(f"input from {args.input_npy} -> {tuple(x.shape)}")
     else:
         x = torch.randn(*shape, device=args.device)
+        if args.half:
+            x = x.half()
 
     out_path = pathlib.Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,7 +147,7 @@ def main():
     print(f"wrote {out_path}  ({out_path.stat().st_size / 1e6:.1f} MB)  "
           f"torch output {tuple(ref.shape)} {ref.dtype}")
 
-    if args.validate:
+    if args.validate and not args.half:
         import numpy as np
         import onnx
         import onnxruntime as ort
